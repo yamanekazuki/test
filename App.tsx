@@ -12,15 +12,23 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Reflection } from './types';
+import * as Clipboard from 'expo-clipboard';
+import { Reflection, ReflectionType } from './types';
 import { saveReflection, getReflections, deleteReflection } from './storage';
+import {
+  HORIZONTAL_PROMPT,
+  VERTICAL_PROMPT,
+  HORIZONTAL_QUESTION,
+  VERTICAL_QUESTION,
+} from './prompts';
 
-type Screen = 'home' | 'write' | 'history';
+type Screen = 'home' | 'selectType' | 'write' | 'history';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
   const [reflections, setReflections] = useState<Reflection[]>([]);
   const [currentReflection, setCurrentReflection] = useState('');
+  const [selectedType, setSelectedType] = useState<ReflectionType | null>(null);
 
   useEffect(() => {
     loadReflections();
@@ -46,15 +54,30 @@ export default function App() {
     return today.toISOString().split('T')[0];
   };
 
+  const getTypeLabel = (type: ReflectionType) => {
+    return type === 'horizontal' ? '水平的' : '垂直的';
+  };
+
+  const handleSelectType = (type: ReflectionType) => {
+    setSelectedType(type);
+    setCurrentScreen('write');
+  };
+
   const handleSaveReflection = async () => {
     if (currentReflection.trim() === '') {
       Alert.alert('エラー', '振り返りの内容を入力してください');
       return;
     }
 
+    if (!selectedType) {
+      Alert.alert('エラー', '振り返りのタイプが選択されていません');
+      return;
+    }
+
     const reflection: Reflection = {
       id: Date.now().toString(),
       date: getTodayDateString(),
+      type: selectedType,
       content: currentReflection,
       createdAt: Date.now(),
     };
@@ -69,6 +92,35 @@ export default function App() {
     } catch (error) {
       Alert.alert('エラー', '保存に失敗しました');
     }
+  };
+
+  const handleCopyToChatGPT = async () => {
+    if (currentReflection.trim() === '' || !selectedType) {
+      Alert.alert('エラー', '振り返りの内容を入力してください');
+      return;
+    }
+
+    const prompt = selectedType === 'horizontal' ? HORIZONTAL_PROMPT : VERTICAL_PROMPT;
+    const textToCopy = prompt + currentReflection;
+
+    await Clipboard.setStringAsync(textToCopy);
+    Alert.alert('コピー完了', 'ChatGPTに貼り付けて分析してもらいましょう！');
+  };
+
+  const handleCopyToSpreadsheet = async () => {
+    if (currentReflection.trim() === '' || !selectedType) {
+      Alert.alert('エラー', '振り返りの内容を入力してください');
+      return;
+    }
+
+    const today = getTodayDateString();
+    const typeLabel = getTypeLabel(selectedType);
+
+    // タブ区切り形式（Googleスプレッドシートに貼り付けやすい）
+    const spreadsheetData = `${today}\t${typeLabel}\t${currentReflection}`;
+
+    await Clipboard.setStringAsync(spreadsheetData);
+    Alert.alert('コピー完了', 'スプレッドシートに貼り付けてください！');
   };
 
   const handleDeleteReflection = async (id: string) => {
@@ -103,7 +155,7 @@ export default function App() {
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => setCurrentScreen('write')}
+          onPress={() => setCurrentScreen('selectType')}
         >
           <Text style={styles.primaryButtonText}>今日の振り返りを書く</Text>
         </TouchableOpacity>
@@ -124,53 +176,109 @@ export default function App() {
     </View>
   );
 
-  const renderWriteScreen = () => (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+  const renderSelectTypeScreen = () => (
+    <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>今日の振り返り</Text>
+        <Text style={styles.title}>振り返りのタイプを選択</Text>
         <Text style={styles.date}>{getTodayDate()}</Text>
       </View>
 
-      <View style={styles.writeContainer}>
-        <Text style={styles.promptText}>
-          今日はどんな一日でしたか？{'\n'}
-          良かったこと、学んだこと、改善したいことなど、{'\n'}
-          自由に書いてみましょう。
-        </Text>
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity
+          style={[styles.typeButton, { backgroundColor: '#FF6B6B' }]}
+          onPress={() => handleSelectType('horizontal')}
+        >
+          <Text style={styles.typeButtonTitle}>水平的な振り返り</Text>
+          <Text style={styles.typeButtonDescription}>
+            業務スキル・HR課題の振り返り
+          </Text>
+        </TouchableOpacity>
 
-        <TextInput
-          style={styles.textInput}
-          multiline
-          placeholder="ここに今日の振り返りを書いてください..."
-          value={currentReflection}
-          onChangeText={setCurrentReflection}
-          textAlignVertical="top"
-        />
-
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => {
-              setCurrentReflection('');
-              setCurrentScreen('home');
-            }}
-          >
-            <Text style={styles.cancelButtonText}>キャンセル</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={handleSaveReflection}
-          >
-            <Text style={styles.saveButtonText}>保存</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={[styles.typeButton, { backgroundColor: '#4ECDC4' }]}
+          onPress={() => handleSelectType('vertical')}
+        >
+          <Text style={styles.typeButtonTitle}>垂直的な振り返り</Text>
+          <Text style={styles.typeButtonDescription}>
+            感情・内面の成長の振り返り
+          </Text>
+        </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => setCurrentScreen('home')}
+      >
+        <Text style={styles.backButtonText}>ホームに戻る</Text>
+      </TouchableOpacity>
+    </View>
   );
+
+  const renderWriteScreen = () => {
+    const question = selectedType === 'horizontal' ? HORIZONTAL_QUESTION : VERTICAL_QUESTION;
+    const typeLabel = selectedType ? getTypeLabel(selectedType) : '';
+
+    return (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>{typeLabel}な振り返り</Text>
+          <Text style={styles.date}>{getTodayDate()}</Text>
+        </View>
+
+        <ScrollView style={styles.writeContainer}>
+          <Text style={styles.promptText}>{question}</Text>
+
+          <TextInput
+            style={styles.textInput}
+            multiline
+            placeholder="ここに今日の振り返りを書いてください..."
+            value={currentReflection}
+            onChangeText={setCurrentReflection}
+            textAlignVertical="top"
+          />
+
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity
+              style={styles.copyButton}
+              onPress={handleCopyToChatGPT}
+            >
+              <Text style={styles.copyButtonText}>ChatGPTで分析</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.copyButton}
+              onPress={handleCopyToSpreadsheet}
+            >
+              <Text style={styles.copyButtonText}>スプレッドシートにコピー</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => {
+                setCurrentReflection('');
+                setSelectedType(null);
+                setCurrentScreen('home');
+              }}
+            >
+              <Text style={styles.cancelButtonText}>キャンセル</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={handleSaveReflection}
+            >
+              <Text style={styles.saveButtonText}>保存</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  };
 
   const renderHistoryScreen = () => (
     <View style={styles.container}>
@@ -190,14 +298,19 @@ export default function App() {
           reflections.map((reflection) => (
             <View key={reflection.id} style={styles.reflectionCard}>
               <View style={styles.reflectionHeader}>
-                <Text style={styles.reflectionDate}>
-                  {new Date(reflection.date).toLocaleDateString('ja-JP', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    weekday: 'short',
-                  })}
-                </Text>
+                <View>
+                  <Text style={styles.reflectionDate}>
+                    {new Date(reflection.date).toLocaleDateString('ja-JP', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      weekday: 'short',
+                    })}
+                  </Text>
+                  <Text style={styles.reflectionType}>
+                    {getTypeLabel(reflection.type)}な振り返り
+                  </Text>
+                </View>
                 <TouchableOpacity
                   onPress={() => handleDeleteReflection(reflection.id)}
                 >
@@ -223,6 +336,7 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       {currentScreen === 'home' && renderHomeScreen()}
+      {currentScreen === 'selectType' && renderSelectTypeScreen()}
       {currentScreen === 'write' && renderWriteScreen()}
       {currentScreen === 'history' && renderHistoryScreen()}
     </SafeAreaView>
@@ -290,6 +404,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  typeButton: {
+    padding: 25,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  typeButtonTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  typeButtonDescription: {
+    color: '#fff',
+    fontSize: 14,
+    opacity: 0.9,
+  },
   statsContainer: {
     padding: 20,
     alignItems: 'center',
@@ -309,7 +445,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   textInput: {
-    flex: 1,
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 15,
@@ -317,10 +452,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
     marginBottom: 20,
+    minHeight: 200,
+  },
+  actionButtonsContainer: {
+    marginBottom: 20,
+  },
+  copyButton: {
+    backgroundColor: '#50C878',
+    padding: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  copyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 20,
   },
   cancelButton: {
     flex: 1,
@@ -385,6 +537,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#4A90E2',
+  },
+  reflectionType: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
   },
   deleteButton: {
     color: '#ff3b30',
